@@ -381,6 +381,54 @@ const db = {
     }
   },
 
+  updateUser: async (id, data) => {
+    const { name, email, role, branch, department, password } = data;
+    const avatar = name ? name.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 3) : '';
+    
+    if (usePostgres) {
+      if (password) {
+        const salt = generateSalt();
+        const hash = hashPassword(password, salt);
+        const res = await pool.query(
+          'UPDATE users SET name = $1, email = $2, role = $3, branch = $4, department = $5, avatar_initials = $6, password_hash = $7, salt = $8 WHERE id = $9 RETURNING id, name, email, role, avatar_initials, branch, department',
+          [name, email, role, branch, department, avatar, hash, salt, id]
+        );
+        return res.rows[0];
+      } else {
+        const res = await pool.query(
+          'UPDATE users SET name = $1, email = $2, role = $3, branch = $4, department = $5, avatar_initials = $6 WHERE id = $7 RETURNING id, name, email, role, avatar_initials, branch, department',
+          [name, email, role, branch, department, avatar, id]
+        );
+        return res.rows[0];
+      }
+    } else {
+      const store = readJsonDb();
+      const user = store.users.find(u => u.id === parseInt(id));
+      if (user) {
+        if (name) {
+          user.name = name;
+          user.avatar_initials = avatar;
+        }
+        if (email) user.email = email;
+        if (role) user.role = role;
+        if (branch) user.branch = branch;
+        if (department) user.department = department;
+        if (password) {
+          const salt = generateSalt();
+          const hash = hashPassword(password, salt);
+          user.salt = salt;
+          user.password_hash = hash;
+        }
+        writeJsonDb(store);
+      }
+      if (user) {
+        const { password_hash, salt, ...profile } = user;
+        return profile;
+      }
+      return null;
+    }
+  },
+
   deleteUser: async (id) => {
     if (usePostgres) {
       await pool.query('DELETE FROM users WHERE id = $1', [id]);
@@ -422,6 +470,29 @@ const db = {
         budget.used_budget = parseFloat(used);
         writeJsonDb(store);
       }
+      return budget;
+    }
+  },
+
+  addBudgetCap: async (department, branch, allocatedBudget) => {
+    const allocated = parseFloat(allocatedBudget) || 0;
+    if (usePostgres) {
+      const res = await pool.query(
+        'INSERT INTO budget_caps (department, branch, allocated_budget, used_budget) VALUES ($1, $2, $3, 0.00) ON CONFLICT (department, branch) DO UPDATE SET allocated_budget = $3 RETURNING *',
+        [department, branch, allocated]
+      );
+      return res.rows[0];
+    } else {
+      const store = readJsonDb();
+      let budget = store.budget_caps.find(b => b.department === department && b.branch === branch);
+      if (budget) {
+        budget.allocated_budget = allocated;
+      } else {
+        const nextId = store.budget_caps.length ? Math.max(...store.budget_caps.map(b => b.id)) + 1 : 1;
+        budget = { id: nextId, department, branch, allocated_budget: allocated, used_budget: 0.00 };
+        store.budget_caps.push(budget);
+      }
+      writeJsonDb(store);
       return budget;
     }
   },
@@ -786,6 +857,29 @@ const db = {
       } else {
         const nextId = store.slots.length ? Math.max(...store.slots.map(s => s.id)) + 1 : 1;
         slot = { id: nextId, category, item_name: itemName, slot_key: slotKey, is_booked: isBooked, booked_by_ticket_id: ticketId };
+        store.slots.push(slot);
+      }
+      writeJsonDb(store);
+      return slot;
+    }
+  },
+
+  addSlot: async (category, itemName, slotKey) => {
+    if (usePostgres) {
+      const res = await pool.query(
+        'INSERT INTO slots (category, item_name, slot_key, is_booked) VALUES ($1, $2, $3, FALSE) ON CONFLICT (category, item_name, slot_key) DO UPDATE SET is_booked = FALSE RETURNING *',
+        [category, itemName, slotKey]
+      );
+      return res.rows[0];
+    } else {
+      const store = readJsonDb();
+      let slot = store.slots.find(s => s.category === category && s.item_name === itemName && s.slot_key === slotKey);
+      if (slot) {
+        slot.is_booked = false;
+        slot.booked_by_ticket_id = null;
+      } else {
+        const nextId = store.slots.length ? Math.max(...store.slots.map(s => s.id)) + 1 : 1;
+        slot = { id: nextId, category, item_name: itemName, slot_key: slotKey, is_booked: false, booked_by_ticket_id: null };
         store.slots.push(slot);
       }
       writeJsonDb(store);

@@ -27,6 +27,43 @@ export default function App() {
   const [assets, setAssets] = useState([]);
   const [slots, setSlots] = useState([]);
   const [webhookLogs, setWebhookLogs] = useState([]);
+
+  // --- OPERASIONAL GA - DYNAMIC STATES ---
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().substring(0, 10));
+  const [selectedResourceType, setSelectedResourceType] = useState('room');
+  const [selectedResourceName, setSelectedResourceName] = useState('Ruang Rapat A');
+  const [assetSearchQuery, setAssetSearchQuery] = useState('');
+  const [assetCategoryFilter, setAssetCategoryFilter] = useState('Semua');
+
+  // --- BUMN ADMIN OPTIMIZATIONS - STATES ---
+  const [editingUser, setEditingUser] = useState(null);
+  const [editUserName, setEditUserName] = useState('');
+  const [editUserEmail, setEditUserEmail] = useState('');
+  const [editUserRole, setEditUserRole] = useState('employee');
+  const [editUserBranch, setEditUserBranch] = useState('Balikpapan');
+  const [editUserDept, setEditUserDept] = useState('Marketing');
+  const [editUserPassword, setEditUserPassword] = useState('');
+
+  const [newBudgetDept, setNewBudgetDept] = useState('Marketing');
+  const [newBudgetBranch, setNewBudgetBranch] = useState('Balikpapan');
+  const [newBudgetAllocated, setNewBudgetAllocated] = useState('');
+
+  const [newFacilityCategory, setNewFacilityCategory] = useState('room');
+  const [newFacilityName, setNewFacilityName] = useState('');
+
+  // Quick borrow helper
+  const handleQuickBorrowAsset = (asset) => {
+    setTicketType('alat');
+    setFormData({
+      aset: `${asset.code} (${asset.name})`,
+      mulai: new Date().toISOString().substring(0, 10),
+      kembali: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().substring(0, 10),
+      tujuan: ''
+    });
+    setFormStep(1);
+    setCurrentTab('buat');
+    addToast('ok', `Form peminjaman ${asset.name} telah disiapkan!`, 'ti-tool');
+  };
   const [dashboardStats, setDashboardStats] = useState({
     activeTickets: 0, pendingTickets: 0, approvedThisMonth: 0, remainingBudget: 0, allocatedBudget: 40000000.00, avgSlaDays: "1.2", recentTickets: []
   });
@@ -533,6 +570,104 @@ export default function App() {
     } catch (err) {}
   };
 
+  // BUMN Admin Control Handlers
+  const handleStartEditUser = (u) => {
+    setEditingUser(u);
+    setEditUserName(u.name);
+    setEditUserEmail(u.email);
+    setEditUserRole(u.role);
+    setEditUserBranch(u.branch);
+    setEditUserDept(u.department);
+    setEditUserPassword('');
+  };
+
+  const handleSaveEditUser = async (e) => {
+    e.preventDefault();
+    if (!editUserName || !editUserEmail) {
+      addToast('warn', 'Nama dan Email wajib diisi!', 'ti-alert-circle');
+      return;
+    }
+    try {
+      const payload = {
+        name: editUserName,
+        email: editUserEmail,
+        role: editUserRole,
+        branch: editUserBranch,
+        department: editUserDept
+      };
+      if (editUserPassword) payload.password = editUserPassword;
+
+      const res = await apiFetch(`${API_URL}/users/${editingUser.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        addToast('ok', `Kredensial & Profil ${editUserName} berhasil diperbarui!`, 'ti-user-check');
+        setEditingUser(null);
+        fetchAllData();
+      }
+    } catch (err) {}
+  };
+
+  const handleAddBudgetCap = async (e) => {
+    e.preventDefault();
+    if (!newBudgetAllocated) {
+      addToast('warn', 'Alokasi anggaran wajib diisi!', 'ti-alert-circle');
+      return;
+    }
+    try {
+      const res = await apiFetch(`${API_URL}/budgets`, {
+        method: 'POST',
+        body: JSON.stringify({
+          department: newBudgetDept,
+          branch: newBudgetBranch,
+          allocated_budget: parseFloat(newBudgetAllocated)
+        })
+      });
+      if (res.ok) {
+        addToast('ok', `Alokasi budget ${newBudgetDept} (${newBudgetBranch}) berhasil ditambahkan!`, 'ti-coin');
+        setNewBudgetAllocated('');
+        fetchAllData();
+      } else {
+        const data = await res.json();
+        addToast('err', data.error || 'Gagal menambahkan anggaran.', 'ti-x');
+      }
+    } catch (err) {}
+  };
+
+  const handleAddFacility = async (e) => {
+    e.preventDefault();
+    if (!newFacilityName.trim()) {
+      addToast('warn', 'Nama unit fasilitas wajib diisi!', 'ti-alert-circle');
+      return;
+    }
+    try {
+      const initialSlots = [
+        '08:00 - 10:00',
+        '10:00 - 12:00',
+        '12:00 - 14:00',
+        '14:00 - 16:00',
+        '16:00 - 18:00'
+      ];
+      
+      // Register initial slot to dynamically initialize the resource name in the system database
+      const res = await apiFetch(`${API_URL}/slots`, {
+        method: 'POST',
+        body: JSON.stringify({
+          category: newFacilityCategory,
+          item_name: newFacilityName,
+          slot_key: `${new Date().toISOString().substring(0, 10)}_${initialSlots[0]}`
+        })
+      });
+
+      if (res.ok) {
+        addToast('ok', `Unit ${newFacilityName} berhasil didaftarkan secara dinamis!`, 'ti-calendar-plus');
+        setNewFacilityName('');
+        fetchAllData();
+      }
+    } catch (err) {}
+  };
+
   // Change user role dynamically (Admin)
   const handleChangeUserRole = async (userId, newRole) => {
     try {
@@ -580,7 +715,7 @@ export default function App() {
     } catch (err) {}
   };
 
-  // Slot calendar booking
+  // Slot calendar booking with time-slot support
   const handleBookSlot = async (category, itemName, slotKey) => {
     const match = slots.find(s => s.category === category && s.item_name === itemName && s.slot_key === slotKey);
     if (match && match.is_booked) {
@@ -614,8 +749,38 @@ export default function App() {
       });
 
       if (res.ok) {
-        addToast('ok', 'Slot berhasil dipesan! Silakan lanjutkan isi tiket pengajuan.', 'ti-calendar-check');
+        addToast('ok', 'Slot berhasil dipesan!', 'ti-calendar-check');
         fetchAllData();
+
+        // Proactive Quick Fill Ticket Action
+        if (confirm('Slot berhasil dipesan secara lokal! Apakah Anda ingin langsung mengisi formulir pengajuan tiket GA formal untuk slot ini?')) {
+          const parts = slotKey.split('_');
+          const dateVal = parts[0];
+          const timeVal = parts[1] || '08:00 - 10:00';
+          
+          if (category === 'room') {
+            setTicketType('meeting');
+            setFormData({
+              ruang: itemName,
+              tgl: dateVal,
+              mulai: timeVal.split('-')[0].trim(),
+              selesai: timeVal.split('-')[1].trim(),
+              acara: '',
+              peserta: 2
+            });
+          } else {
+            setTicketType('kendaraan');
+            setFormData({
+              kend: itemName,
+              supir: 'Tidak perlu',
+              mulai: dateVal,
+              selesai: dateVal,
+              tujuan: ''
+            });
+          }
+          setFormStep(1);
+          setCurrentTab('buat');
+        }
       }
     } catch (err) {}
   };
@@ -641,6 +806,17 @@ export default function App() {
   };
 
   const ticketDetailObj = tickets.find(t => t.id === selectedTicketId);
+
+  // Dynamic facilities list extracted from database slots!
+  const dynamicRooms = Array.from(new Set(slots.filter(s => s.category === 'room').map(s => s.item_name)));
+  if (dynamicRooms.length === 0) {
+    dynamicRooms.push('Ruang Rapat A', 'Ruang Rapat B', 'Ruang Direksi', 'Aula Utama');
+  }
+
+  const dynamicVehicles = Array.from(new Set(slots.filter(s => s.category === 'vehicle').map(s => s.item_name)));
+  if (dynamicVehicles.length === 0) {
+    dynamicVehicles.push('Avanza B-1234-AB', 'Honda Jazz', 'Innova B-9012-EF');
+  }
 
   // --- WIZARD CONFIG ---
   const formConfig = {
@@ -1152,6 +1328,12 @@ export default function App() {
                       }
                       
                       if (f.type === 'select') {
+                        let dynamicOpts = f.opts;
+                        if (f.id === 'ruang') {
+                          dynamicOpts = dynamicRooms;
+                        } else if (f.id === 'kend') {
+                          dynamicOpts = dynamicVehicles;
+                        }
                         return (
                           <div className="form-group" key={f.id}>
                             <label>{f.label}{f.req && <span className="req">*</span>}</label>
@@ -1160,7 +1342,7 @@ export default function App() {
                               onChange={(e) => handleFormFieldChange(f.id, e.target.value)}
                             >
                               <option value="">-- Pilih --</option>
-                              {f.opts.map(o => <option key={o} value={o}>{o}</option>)}
+                              {dynamicOpts.map(o => <option key={o} value={o}>{o}</option>)}
                             </select>
                           </div>
                         );
@@ -1626,10 +1808,35 @@ export default function App() {
               </div>
             </div>
 
+            {/* Asset search & filter controls */}
+            <div className="filter-row card" style={{ padding: '12px 18px', display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '16px' }}>
+              <div style={{ flex: 1, position: 'relative' }}>
+                <i className="ti ti-search" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--hi)' }}></i>
+                <input 
+                  type="text" 
+                  placeholder="Cari aset berdasarkan kode or nama..." 
+                  value={assetSearchQuery}
+                  onChange={(e) => setAssetSearchQuery(e.target.value)}
+                  style={{ paddingLeft: '32px', height: '36px' }}
+                />
+              </div>
+              <select 
+                value={assetCategoryFilter} 
+                onChange={(e) => setAssetCategoryFilter(e.target.value)}
+                style={{ width: '180px', height: '36px' }}
+              >
+                <option value="Semua">Semua Kategori</option>
+                <option value="Elektronik">Elektronik</option>
+                <option value="Kendaraan">Kendaraan</option>
+                <option value="Perabot">Perabot</option>
+                <option value="Perlengkapan">Perlengkapan</option>
+              </select>
+            </div>
+
             <div className="split">
               <div className="card">
                 <table>
-                  <colgroup><col style={{ width: '130px' }}/><col/><col style={{ width: '100px' }}/><col style={{ width: '90px' }}/><col style={{ width: '110px' }}/><col style={{ width: '100px' }}/></colgroup>
+                  <colgroup><col style={{ width: '130px' }}/><col/><col style={{ width: '110px' }}/><col style={{ width: '100px' }}/><col style={{ width: '130px' }}/><col style={{ width: '110px' }}/></colgroup>
                   <thead>
                     <tr>
                       <th>Kode Aset</th>
@@ -1637,53 +1844,73 @@ export default function App() {
                       <th>Kategori</th>
                       <th>Kondisi</th>
                       <th>Status</th>
-                      <th>Barcode</th>
+                      <th>Aksi</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {assets.map(a => (
-                      <tr key={a.id}>
-                        <td style={{ fontFamily: 'monospace', fontSize: '11px', fontWeight: 'bold' }}>{a.code}</td>
-                        <td>{a.name}</td>
-                        <td>{a.category}</td>
-                        <td>
-                          <select 
-                            value={a.condition} 
-                            disabled={!isSuperAdmin}
-                            onChange={(e) => handleUpdateAsset(a.id, e.target.value, a.status)}
-                            style={{ padding: '2px 4px', fontSize: '11px', width: 'auto' }}
-                          >
-                            <option value="Baik">Baik</option>
-                            <option value="Servis">Servis</option>
-                            <option value="Rusak">Rusak</option>
-                          </select>
-                        </td>
-                        <td>
-                          <select 
-                            value={a.status} 
-                            disabled={!isSuperAdmin}
-                            onChange={(e) => handleUpdateAsset(a.id, a.condition, e.target.value)}
-                            style={{ padding: '2px 4px', fontSize: '11px', width: 'auto' }}
-                          >
-                            <option value="Tersedia">Tersedia</option>
-                            <option value="Dipinjam">Dipinjam</option>
-                            <option value="Tidak Tersedia">Tidak Tersedia</option>
-                          </select>
-                        </td>
-                        <td>
-                          <div style={{ display: 'flex', gap: '2px' }}>
-                            <button className="btn btn-sm" onClick={() => setShowBarcodePrint(a)} title="Cetak Barcode"><i className="ti ti-printer" aria-hidden="true"></i></button>
-                            {isSuperAdmin && <button className="btn btn-sm btn-no" onClick={() => handleDeleteAsset(a.id)}><i className="ti ti-trash" aria-hidden="true"></i></button>}
-                          </div>
-                        </td>
+                    {assets
+                      .filter(a => {
+                        if (assetCategoryFilter !== 'Semua' && a.category !== assetCategoryFilter) return false;
+                        if (assetSearchQuery && !a.name.toLowerCase().includes(assetSearchQuery.toLowerCase()) && !a.code.toLowerCase().includes(assetSearchQuery.toLowerCase())) return false;
+                        return true;
+                      })
+                      .map(a => (
+                        <tr key={a.id}>
+                          <td style={{ fontFamily: 'monospace', fontSize: '11px', fontWeight: 'bold' }}>{a.code}</td>
+                          <td style={{ fontWeight: '600' }}>{a.name}</td>
+                          <td><span className="type-chip">{a.category}</span></td>
+                          <td>
+                            <select 
+                              value={a.condition} 
+                              disabled={!isSuperAdmin}
+                              onChange={(e) => handleUpdateAsset(a.id, e.target.value, a.status)}
+                              style={{ padding: '2px 4px', fontSize: '11px', width: 'auto' }}
+                            >
+                              <option value="Baik">Baik</option>
+                              <option value="Servis">Servis</option>
+                              <option value="Rusak">Rusak</option>
+                            </select>
+                          </td>
+                          <td>
+                            <select 
+                              value={a.status} 
+                              disabled={!isSuperAdmin}
+                              onChange={(e) => handleUpdateAsset(a.id, a.condition, e.target.value)}
+                              style={{ padding: '2px 4px', fontSize: '11px', width: 'auto', fontWeight: 'bold', color: a.status === 'Tersedia' ? 'var(--grn-tx)' : 'var(--red-tx)' }}
+                            >
+                              <option value="Tersedia">Tersedia</option>
+                              <option value="Dipinjam">Dipinjam</option>
+                              <option value="Tidak Tersedia">Tidak Tersedia</option>
+                            </select>
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', gap: '4px' }}>
+                              <button className="btn btn-sm" onClick={() => setShowBarcodePrint(a)} title="Cetak Barcode"><i className="ti ti-printer" aria-hidden="true"></i></button>
+                              {a.status === 'Tersedia' ? (
+                                <button className="btn btn-sm btn-ok" onClick={() => handleQuickBorrowAsset(a)} title="Ajukan Pinjam"><i className="ti ti-hand-finger" aria-hidden="true"></i> Pinjam</button>
+                              ) : (
+                                <button className="btn btn-sm" disabled style={{ opacity: 0.6, cursor: 'not-allowed' }} title="Aset Sedang Dipinjam"><i className="ti ti-ban" aria-hidden="true"></i> Pinjam</button>
+                              )}
+                              {isSuperAdmin && <button className="btn btn-sm btn-no" onClick={() => handleDeleteAsset(a.id)}><i className="ti ti-trash" aria-hidden="true"></i></button>}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    {assets.filter(a => {
+                      if (assetCategoryFilter !== 'Semua' && a.category !== assetCategoryFilter) return false;
+                      if (assetSearchQuery && !a.name.toLowerCase().includes(assetSearchQuery.toLowerCase()) && !a.code.toLowerCase().includes(assetSearchQuery.toLowerCase())) return false;
+                      return true;
+                    }).length === 0 && (
+                      <tr>
+                        <td colSpan="6" style={{ textAlign: 'center', padding: '24px', color: 'var(--mu)' }}>Tidak ada aset yang cocok dengan kriteria pencarian.</td>
                       </tr>
-                    ))}
+                    )}
                   </tbody>
                 </table>
               </div>
 
               <div className="card" style={{ padding: '16px' }}>
-                <div className="sec-title" style={{ marginBottom: '12px' }}><i className="ti ti-box" aria-hidden="true"></i> {isSuperAdmin ? 'Registrasi Aset Baru' : 'Info Peminjaman'}</div>
+                <div className="sec-title" style={{ marginBottom: '12px' }}><i className="ti ti-box" aria-hidden="true"></i> {isSuperAdmin ? 'Registrasi Aset Baru' : 'Info Sistem Peminjaman'}</div>
                 {isSuperAdmin ? (
                   <form onSubmit={handleAddAsset}>
                     <div className="form-group" style={{ marginBottom: '10px' }}>
@@ -1707,12 +1934,17 @@ export default function App() {
                   </form>
                 ) : (
                   <div style={{ fontSize: '12.5px', color: 'var(--mu)', lineHeight: '1.5' }}>
-                    Untuk mengajukan peminjaman aset di atas, silakan buat tiket baru dengan kategori <strong>Peminjaman Alat</strong>. Barcode cetak digunakan untuk verifikasi inventaris fisik oleh staf GA di lokasi.
+                    <p style={{ marginBottom: '8px' }}>Untuk meminjam inventaris operasional GA:</p>
+                    <ol style={{ paddingLeft: '16px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '11.5px' }}>
+                      <li>Cari aset yang Anda butuhkan di tabel.</li>
+                      <li>Klik tombol hijau <b>Pinjam</b> di kolom aksi.</li>
+                      <li>Sistem akan menyiapkan draf tiket otomatis. Cukup isi alasan keperluan Anda lalu kirim!</li>
+                    </ol>
                   </div>
                 )}
               </div>
             </div>
-            
+
             {showBarcodePrint && (
               <div className="modal-wrap">
                 <div className="modal" style={{ width: '320px', textAlign: 'center' }}>
@@ -1744,89 +1976,208 @@ export default function App() {
           <div className="page-view animate">
             <div className="pg-hd">
               <div>
-                <h1 className="pg-title">Jadwal & Ketersediaan Slot</h1>
-                <div className="pg-sub">Cek ketersediaan ruang rapat dan kendaraan operasional secara real-time</div>
+                <h1 className="pg-title">Reservasi & Jadwal Slot Operasional</h1>
+                <div className="pg-sub">Manajemen waktu pemesanan fasilitas ruangan rapat dan armada kendaraan secara real-time</div>
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-              <div className="card" style={{ padding: '16px' }}>
-                <div className="sec-title" style={{ marginBottom: '12px' }}><i className="ti ti-door" aria-hidden="true" style={{ color: 'var(--blu)' }}></i> Ruang Rapat — Januari 2025</div>
-                <div style={{ fontSize: '12px', color: 'var(--mu)', marginBottom: '12px' }}>
-                  Klik nomor hari untuk memesan/merilis slot ketersediaan.<br/>
-                  Keterangan: <span style={{ color: 'var(--grn-tx)', fontWeight: 'bold' }}>■ Tersedia</span> &nbsp; <span style={{ color: 'var(--red-tx)', fontWeight: 'bold' }}>■ Dibooking</span>
+            {/* Centralised control panel */}
+            <div className="card" style={{ padding: '16px 20px', marginBottom: '16px', display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ margin: 0 }}>Kategori Fasilitas</label>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button 
+                    className={`btn btn-sm ${selectedResourceType === 'room' ? 'btn-primary' : ''}`}
+                    onClick={() => {
+                      setSelectedResourceType('room');
+                      setSelectedResourceName('Ruang Rapat A');
+                    }}
+                  >
+                    <i className="ti ti-door" aria-hidden="true"></i> Ruangan
+                  </button>
+                  <button 
+                    className={`btn btn-sm ${selectedResourceType === 'vehicle' ? 'btn-primary' : ''}`}
+                    onClick={() => {
+                      setSelectedResourceType('vehicle');
+                      setSelectedResourceName('Avanza B-1234-AB');
+                    }}
+                  >
+                    <i className="ti ti-car" aria-hidden="true"></i> Kendaraan
+                  </button>
                 </div>
+              </div>
 
-                <div style={{ fontSize: '12.5px', fontWeight: '600', color: 'var(--mu)', marginBottom: '4px' }}>Ruang Rapat A (Kapasitas 10 Orang)</div>
-                <div className="avail-grid" style={{ marginBottom: '20px' }}>
-                  {Array.from({ length: 14 }, (_, i) => {
-                    const slotKey = String(i + 1);
-                    const isBusy = slots.some(s => s.category === 'room' && s.item_name === 'Ruang Rapat A' && s.slot_key === slotKey && s.is_booked);
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '200px' }}>
+                <label style={{ margin: 0 }}>Pilih Fasilitas / Unit</label>
+                <select 
+                  value={selectedResourceName} 
+                  onChange={(e) => setSelectedResourceName(e.target.value)}
+                  style={{ height: '32px', padding: '4px 8px' }}
+                >
+                  {selectedResourceType === 'room' ? (
+                    <>
+                      <option value="Ruang Rapat A">Ruang Rapat A (Kapasitas 10)</option>
+                      <option value="Ruang Rapat B">Ruang Rapat B (Kapasitas 20)</option>
+                      <option value="Ruang Direksi">Ruang Direksi (Kapasitas 8)</option>
+                      <option value="Aula Utama">Aula Utama (Kapasitas 50)</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="Avanza B-1234-AB">Toyota Avanza (B-1234-AB)</option>
+                      <option value="Honda Jazz">Honda Jazz (Operasional)</option>
+                      <option value="Innova B-9012-EF">Toyota Innova (B-9012-EF)</option>
+                    </>
+                  )}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '160px' }}>
+                <label style={{ margin: 0 }}>Tanggal Booking</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <button 
+                    className="btn btn-sm" 
+                    onClick={() => {
+                      const d = new Date(selectedDate);
+                      d.setDate(d.getDate() - 1);
+                      setSelectedDate(d.toISOString().substring(0, 10));
+                    }}
+                  >
+                    <i className="ti ti-chevron-left" aria-hidden="true"></i>
+                  </button>
+                  <input 
+                    type="date" 
+                    value={selectedDate} 
+                    onChange={(e) => setSelectedDate(e.target.value)} 
+                    style={{ width: '140px', height: '32px', padding: '4px' }}
+                  />
+                  <button 
+                    className="btn btn-sm"
+                    onClick={() => {
+                      const d = new Date(selectedDate);
+                      d.setDate(d.getDate() + 1);
+                      setSelectedDate(d.toISOString().substring(0, 10));
+                    }}
+                  >
+                    <i className="ti ti-chevron-right" aria-hidden="true"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Split Calendar grid and sidebar info */}
+            <div className="split">
+              {/* Time Slots Cards Grid */}
+              <div className="card" style={{ padding: '20px' }}>
+                <div className="sec-title" style={{ marginBottom: '16px' }}>
+                  <i className="ti ti-clock" aria-hidden="true"></i> 
+                  Slot Waktu Ketersediaan — {new Date(selectedDate).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                </div>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {[
+                    '08:00 - 10:00',
+                    '10:00 - 12:00',
+                    '12:00 - 14:00',
+                    '14:00 - 16:00',
+                    '16:00 - 18:00'
+                  ].map(slotTime => {
+                    const slotKey = `${selectedDate}_${slotTime}`;
+                    const match = slots.find(s => s.category === selectedResourceType && s.item_name === selectedResourceName && s.slot_key === slotKey);
+                    const isBusy = match && match.is_booked;
+                    
                     return (
                       <div 
-                        key={slotKey} 
-                        className={`avail-slot ${isBusy ? 'busy' : 'free'}`}
-                        onClick={() => handleBookSlot('room', 'Ruang Rapat A', slotKey)}
+                        className={`time-slot-card ${isBusy ? 'busy' : 'free'}`}
+                        key={slotTime}
+                        style={{
+                          display: 'flex', 
+                          justifyContent: 'space-between', 
+                          alignItems: 'center',
+                          padding: '14px 20px',
+                          borderRadius: '12px',
+                          border: isBusy ? '1px solid var(--red-bd)' : '1px solid var(--grn-bd)',
+                          background: isBusy ? 'var(--red-bg)' : 'var(--grn-bg)',
+                          transition: 'all 0.2s'
+                        }}
                       >
-                        {slotKey}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <div style={{ fontSize: '12.5px', fontWeight: '600', color: 'var(--mu)', marginBottom: '4px' }}>Ruang Rapat B (Kapasitas 20 Orang)</div>
-                <div className="avail-grid">
-                  {Array.from({ length: 14 }, (_, i) => {
-                    const slotKey = String(i + 1);
-                    const isBusy = slots.some(s => s.category === 'room' && s.item_name === 'Ruang Rapat B' && s.slot_key === slotKey && s.is_booked);
-                    return (
-                      <div 
-                        key={slotKey} 
-                        className={`avail-slot ${isBusy ? 'busy' : 'free'}`}
-                        onClick={() => handleBookSlot('room', 'Ruang Rapat B', slotKey)}
-                      >
-                        {slotKey}
+                        <div>
+                          <div style={{ fontSize: '14px', fontWeight: 'bold', color: isBusy ? 'var(--red-tx)' : 'var(--grn-tx)' }}>
+                            <i className="ti ti-alarm" aria-hidden="true" style={{ marginRight: '6px' }}></i> {slotTime}
+                          </div>
+                          <div style={{ fontSize: '11px', color: 'var(--mu)', marginTop: '4px' }}>
+                            {isBusy ? 'Status: Tidak Tersedia (Sudah Dipesan)' : 'Status: Tersedia untuk Reservasi'}
+                          </div>
+                        </div>
+                        
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span className={`chip ${isBusy ? 'chip-no' : 'chip-ok'}`}>
+                            {isBusy ? 'Terisi' : 'Tersedia'}
+                          </span>
+                          
+                          <button 
+                            className={`btn btn-sm ${isBusy ? 'btn-no' : 'btn-ok'}`}
+                            onClick={() => handleBookSlot(selectedResourceType, selectedResourceName, slotKey)}
+                            style={{ padding: '6px 12px' }}
+                          >
+                            {isBusy ? (
+                              currentUser.role === 'admin' ? 'Bebaskan Slot' : 'Terbooking'
+                            ) : (
+                              <>
+                                <i className="ti ti-circle-plus" aria-hidden="true"></i> Booking
+                              </>
+                            )}
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
                 </div>
               </div>
 
-              <div className="card" style={{ padding: '16px' }}>
-                <div className="sec-title" style={{ marginBottom: '12px' }}><i className="ti ti-car" aria-hidden="true" style={{ color: 'var(--amb)' }}></i> Kendaraan GA — Minggu Ini</div>
-                <table style={{ tableLayout: 'auto' }}>
-                  <thead>
-                    <tr>
-                      <th>Kendaraan</th>
-                      <th>Sen</th>
-                      <th>Sel</th>
-                      <th>Rab</th>
-                      <th>Kam</th>
-                      <th>Jum</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[
-                      { name: 'Avanza B-1234-AB' },
-                      { name: 'Honda Jazz' },
-                      { name: 'Innova B-9012-EF' }
-                    ].map(v => (
-                      <tr key={v.name}>
-                        <td style={{ fontSize: '12px', fontWeight: 'bold' }}>{v.name}</td>
-                        {['Sen', 'Sel', 'Rab', 'Kam', 'Jum'].map(day => {
-                          const isBusy = slots.some(s => s.category === 'vehicle' && s.item_name === v.name && s.slot_key === day && s.is_booked);
-                          return (
-                            <td key={day} onClick={() => handleBookSlot('vehicle', v.name, day)}>
-                              <span className={`chip chip-${isBusy ? 'no' : 'ok'}`} style={{ fontSize: '10px', padding: '2px 6px', cursor: 'pointer' }}>
-                                {isBusy ? 'Booking' : 'Tersedia'}
-                              </span>
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              {/* Booking helper sidebar */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div className="card" style={{ padding: '16px' }}>
+                  <div className="sec-title" style={{ marginBottom: '12px' }}>
+                    <i className="ti ti-info-circle" aria-hidden="true"></i> Rincian Informasi
+                  </div>
+                  
+                  <div style={{ fontSize: '12.5px', color: 'var(--mu)', lineHeight: '1.6' }}>
+                    <p style={{ marginBottom: '10px' }}>Unit Fasilitas terpilih:</p>
+                    <div style={{ background: 'var(--surf2)', padding: '10px', borderRadius: '8px', marginBottom: '12px', border: '1px solid var(--bd2)' }}>
+                      <div style={{ fontWeight: 'bold', color: 'var(--tx)' }}>{selectedResourceName}</div>
+                      <div style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--blu)', marginTop: '2px', fontWeight: 'bold' }}>
+                        Kategori: {selectedResourceType === 'room' ? 'Ruang Rapat' : 'Armada Kendaraan'}
+                      </div>
+                    </div>
+
+                    <p style={{ marginBottom: '10px' }}>Aturan Reservasi:</p>
+                    <ul style={{ paddingLeft: '16px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '11.5px' }}>
+                      <li>Reservasi slot secara otomatis terdaftar di database.</li>
+                      <li>Sistem akan menyarankan Anda untuk membuat **Tiket GA** setelah memesan slot.</li>
+                      <li>Tiket GA diperlukan agar staf GA menyiapkan ruangan/supir/kunci fisik secara formal.</li>
+                    </ul>
+                  </div>
+                </div>
+
+                {isSuperAdmin && (
+                  <div className="card" style={{ padding: '16px' }}>
+                    <div className="sec-title" style={{ marginBottom: '12px' }}><i className="ti ti-calendar-plus" aria-hidden="true"></i> Daftarkan Fasilitas Baru</div>
+                    <form onSubmit={handleAddFacility}>
+                      <div className="form-group" style={{ marginBottom: '10px' }}>
+                        <label>Kategori</label>
+                        <select value={newFacilityCategory} onChange={(e) => setNewFacilityCategory(e.target.value)} style={{ height: '32px', padding: '4px' }}>
+                          <option value="room">Ruangan Rapat</option>
+                          <option value="vehicle">Armada Kendaraan</option>
+                        </select>
+                      </div>
+                      <div className="form-group" style={{ marginBottom: '12px' }}>
+                        <label>Nama Unit / Plat Nomor</label>
+                        <input placeholder="cth: Ruang Rapat Garuda" value={newFacilityName} onChange={(e) => setNewFacilityName(e.target.value)} style={{ height: '32px' }} />
+                      </div>
+                      <button className="btn btn-primary btn-sm" type="submit" style={{ width: '100%' }}><i className="ti ti-plus" aria-hidden="true"></i> Registrasikan Unit</button>
+                    </form>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -1933,7 +2284,10 @@ export default function App() {
                           </select>
                         </td>
                         <td>
-                          <button className="btn btn-sm btn-no" onClick={() => handleDeleteUser(u.id)}><i className="ti ti-trash" aria-hidden="true"></i></button>
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            <button className="btn btn-sm" onClick={() => handleStartEditUser(u)} title="Edit Profil & Sandi"><i className="ti ti-edit" aria-hidden="true"></i></button>
+                            <button className="btn btn-sm btn-no" onClick={() => handleDeleteUser(u.id)} title="Hapus"><i className="ti ti-trash" aria-hidden="true"></i></button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1997,56 +2351,93 @@ export default function App() {
               </div>
             </div>
 
-            <div className="card">
-              <div className="card-hd"><span className="sec-title">Alokasi Cap Budget Aktif</span></div>
-              <table>
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Departemen</th>
-                    <th>Cabang</th>
-                    <th>Alokasi Cap Budget</th>
-                    <th>Terpakai</th>
-                    <th>Sisa Saldo</th>
-                    <th>Aksi</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {budgets.map(b => (
-                    <tr key={b.id}>
-                      <td className="mono">{b.id}</td>
-                      <td style={{ fontWeight: '600' }}>{b.department}</td>
-                      <td>{b.branch}</td>
-                      <td>
-                        {editBudgetCapId === b.id ? (
-                          <div style={{ display: 'flex', gap: '4px' }}>
-                            <input 
-                              type="number" 
-                              value={editBudgetAllocated} 
-                              onChange={(e) => setEditBudgetAllocated(e.target.value)}
-                              style={{ width: '140px', padding: '4px 8px' }}
-                            />
-                            <button className="btn btn-sm btn-primary" onClick={() => handleUpdateBudgetCap(b.id, editBudgetAllocated, b.used_budget)}>Save</button>
-                            <button className="btn btn-sm" onClick={() => setEditBudgetCapId(null)}>Cancel</button>
-                          </div>
-                        ) : (
-                          <span>Rp {b.allocated_budget.toLocaleString('id-ID')}</span>
-                        )}
-                      </td>
-                      <td style={{ color: 'var(--red-tx)' }}>Rp {b.used_budget.toLocaleString('id-ID')}</td>
-                      <td style={{ fontWeight: 'bold', color: 'var(--grn-tx)' }}>Rp {(b.allocated_budget - b.used_budget).toLocaleString('id-ID')}</td>
-                      <td>
-                        {editBudgetCapId !== b.id && (
-                          <button className="btn btn-sm" onClick={() => {
-                            setEditBudgetCapId(b.id);
-                            setEditBudgetAllocated(b.allocated_budget);
-                          }}><i className="ti ti-edit" aria-hidden="true"></i> Edit Cap</button>
-                        )}
-                      </td>
+            <div className="split">
+              <div className="card" style={{ marginBottom: 0 }}>
+                <div className="card-hd"><span className="sec-title">Alokasi Cap Budget Aktif</span></div>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Departemen</th>
+                      <th>Cabang</th>
+                      <th>Alokasi Cap Budget</th>
+                      <th>Terpakai</th>
+                      <th>Sisa Saldo</th>
+                      <th>Aksi</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {budgets.map(b => (
+                      <tr key={b.id}>
+                        <td className="mono">{b.id}</td>
+                        <td style={{ fontWeight: '600' }}>{b.department}</td>
+                        <td>{b.branch}</td>
+                        <td>
+                          {editBudgetCapId === b.id ? (
+                            <div style={{ display: 'flex', gap: '4px' }}>
+                              <input 
+                                type="number" 
+                                value={editBudgetAllocated} 
+                                onChange={(e) => setEditBudgetAllocated(e.target.value)}
+                                style={{ width: '140px', padding: '4px 8px' }}
+                              />
+                              <button className="btn btn-sm btn-primary" onClick={() => handleUpdateBudgetCap(b.id, editBudgetAllocated, b.used_budget)}>Save</button>
+                              <button className="btn btn-sm" onClick={() => setEditBudgetCapId(null)}>Cancel</button>
+                            </div>
+                          ) : (
+                            <span>Rp {b.allocated_budget.toLocaleString('id-ID')}</span>
+                          )}
+                        </td>
+                        <td style={{ color: 'var(--red-tx)' }}>Rp {b.used_budget.toLocaleString('id-ID')}</td>
+                        <td style={{ fontWeight: 'bold', color: 'var(--grn-tx)' }}>Rp {(b.allocated_budget - b.used_budget).toLocaleString('id-ID')}</td>
+                        <td>
+                          {editBudgetCapId !== b.id && (
+                            <button className="btn btn-sm" onClick={() => {
+                              setEditBudgetCapId(b.id);
+                              setEditBudgetAllocated(b.allocated_budget);
+                            }}><i className="ti ti-edit" aria-hidden="true"></i> Edit Cap</button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="card" style={{ padding: '16px' }}>
+                <div className="sec-title" style={{ marginBottom: '12px' }}><i className="ti ti-wallet" aria-hidden="true"></i> Tambah Alokasi Baru</div>
+                <form onSubmit={handleAddBudgetCap}>
+                  <div className="form-group" style={{ marginBottom: '10px' }}>
+                    <label>Departemen</label>
+                    <select value={newBudgetDept} onChange={(e) => setNewBudgetDept(e.target.value)} style={{ height: '32px', padding: '4px' }}>
+                      <option value="Marketing">Marketing</option>
+                      <option value="Operasional">Operasional</option>
+                      <option value="HR">HR</option>
+                      <option value="IT">IT</option>
+                      <option value="Management">Management</option>
+                      <option value="Finance">Finance</option>
+                      <option value="General Affairs">General Affairs</option>
+                    </select>
+                  </div>
+                  <div className="form-group" style={{ marginBottom: '10px' }}>
+                    <label>Cabang Kantor</label>
+                    <select value={newBudgetBranch} onChange={(e) => setNewBudgetBranch(e.target.value)} style={{ height: '32px', padding: '4px' }}>
+                      <option value="Balikpapan">Balikpapan</option>
+                      <option value="Jakarta">Jakarta</option>
+                      <option value="Surabaya">Surabaya</option>
+                      <option value="Makassar">Makassar</option>
+                    </select>
+                  </div>
+                  <div className="form-group" style={{ marginBottom: '12px' }}>
+                    <label>Pagu Anggaran (Allocated Cap)</label>
+                    <div className="budget-input-wrap">
+                      <span className="prefix">Rp</span>
+                      <input type="number" placeholder="50000000" value={newBudgetAllocated} onChange={(e) => setNewBudgetAllocated(e.target.value)} style={{ height: '32px', paddingLeft: '32px' }} />
+                    </div>
+                  </div>
+                  <button className="btn btn-primary btn-sm" type="submit" style={{ width: '100%' }}><i className="ti ti-plus" aria-hidden="true"></i> Daftarkan Anggaran</button>
+                </form>
+              </div>
             </div>
           </div>
         )}
@@ -2110,6 +2501,89 @@ export default function App() {
                 {modalAction.action === 'approve' ? 'Ya, Setujui' : 'Ya, Tolak'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- EDIT USER MODAL (RESET PASSWORD) --- */}
+      {editingUser && (
+        <div className="modal-wrap">
+          <div className="modal animate" style={{ width: '480px' }}>
+            <div className="modal-title"><i className="ti ti-user-edit" style={{ color: 'var(--blu)' }}></i> Edit Kredensial & Profil Pengguna</div>
+            <div className="modal-sub">Ubah informasi profil atau reset kata sandi masuk untuk user <b>{editingUser.name}</b>.</div>
+            
+            <form onSubmit={handleSaveEditUser}>
+              <div className="form-group" style={{ marginBottom: '10px' }}>
+                <label>Nama Lengkap</label>
+                <input 
+                  type="text" 
+                  value={editUserName} 
+                  onChange={(e) => setEditUserName(e.target.value)} 
+                  required
+                />
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '10px' }}>
+                <label>E-mail Perusahaan</label>
+                <input 
+                  type="email" 
+                  value={editUserEmail} 
+                  onChange={(e) => setEditUserEmail(e.target.value)} 
+                  required
+                />
+              </div>
+
+              <div className="form-grid" style={{ marginBottom: '10px' }}>
+                <div className="form-group">
+                  <label>Departemen</label>
+                  <select value={editUserDept} onChange={(e) => setEditUserDept(e.target.value)} style={{ height: '32px', padding: '4px' }}>
+                    <option value="Marketing">Marketing</option>
+                    <option value="Operasional">Operasional</option>
+                    <option value="HR">HR</option>
+                    <option value="IT">IT</option>
+                    <option value="Management">Management</option>
+                    <option value="General Affairs">General Affairs</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Cabang</label>
+                  <select value={editUserBranch} onChange={(e) => setEditUserBranch(e.target.value)} style={{ height: '32px', padding: '4px' }}>
+                    <option value="Balikpapan">Balikpapan</option>
+                    <option value="Jakarta">Jakarta</option>
+                    <option value="Surabaya">Surabaya</option>
+                    <option value="Makassar">Makassar</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '10px' }}>
+                <label>Role Otorisasi</label>
+                <select value={editUserRole} onChange={(e) => setEditUserRole(e.target.value)} style={{ height: '32px', padding: '4px' }}>
+                  <option value="employee">Employee (Karyawan)</option>
+                  <option value="manager">Manager (Penyetuju Dept)</option>
+                  <option value="bm">Branch Manager (BM)</option>
+                  <option value="admin">Super Admin GA</option>
+                </select>
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '12px', border: '1px dashed var(--amb-bd)', padding: '10px', borderRadius: '8px', background: 'var(--amb-bg)' }}>
+                <label style={{ color: 'var(--amb-tx)', display: 'flex', alignItems: 'center', gap: '4px', margin: '0 0 6px 0' }}>
+                  <i className="ti ti-key"></i> Reset Sandi Baru (Kosongkan jika tidak diubah)
+                </label>
+                <input 
+                  type="password" 
+                  placeholder="Masukkan kata sandi baru..." 
+                  value={editUserPassword} 
+                  onChange={(e) => setEditUserPassword(e.target.value)}
+                  style={{ background: 'var(--surf)', height: '32px' }}
+                />
+              </div>
+
+              <div className="modal-footer">
+                <button type="button" className="btn btn-sm" onClick={() => setEditingUser(null)}>Batal</button>
+                <button type="submit" className="btn btn-sm btn-primary"><i className="ti ti-device-floppy"></i> Simpan Perubahan</button>
+              </div>
+            </form>
           </div>
         </div>
       )}

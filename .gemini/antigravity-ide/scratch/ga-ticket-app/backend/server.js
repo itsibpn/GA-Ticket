@@ -128,6 +128,16 @@ app.put('/api/users/:id/role', async (req, res) => {
   }
 });
 
+app.put('/api/users/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updated = await db.updateUser(id, req.body);
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.delete('/api/users/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -154,6 +164,19 @@ app.put('/api/budgets/:id', async (req, res) => {
     const { allocated_budget, used_budget } = req.body;
     const updated = await db.updateBudgetCap(id, allocated_budget, used_budget);
     res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/budgets', async (req, res) => {
+  try {
+    const { department, branch, allocated_budget } = req.body;
+    if (!department || !branch || !allocated_budget) {
+      return res.status(400).json({ error: "Departemen, Cabang, dan Anggaran wajib diisi!" });
+    }
+    const newBudget = await db.addBudgetCap(department, branch, allocated_budget);
+    res.status(201).json(newBudget);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -463,6 +486,19 @@ app.post('/api/slots/free', async (req, res) => {
     }
     const slot = await db.freeSlot(category, item_name, slot_key);
     res.json(slot);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/slots', async (req, res) => {
+  try {
+    const { category, item_name, slot_key } = req.body;
+    if (!category || !item_name || !slot_key) {
+      return res.status(400).json({ error: "Missing slot category, item_name or slot_key" });
+    }
+    const newSlot = await db.addSlot(category, item_name, slot_key);
+    res.status(201).json(newSlot);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

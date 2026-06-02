@@ -1824,3 +1824,50 @@ label {
   animation: spin 1s linear infinite;
 }
 
+/* --- TIME SLOT CARD AND CALENDAR RESERVATION DESIGN --- */
+.time-slot-card {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
+}
+
+.time-slot-card.free:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(59, 109, 17, 0.08);
+  border-color: var(--grn) !important;
+}
+
+.time-slot-card.busy {
+  opacity: 0.85;
+}
+
+.time-slot-card.busy:hover {
+  transform: none;
+}
+
+.time-slot-card i.ti-alarm {
+  font-size: 16px;
+  vertical-align: middle;
+}
+
+/* Pulse animation for active/available booking action button */
+@keyframes pulsing {
+  0% { box-shadow: 0 0 0 0 rgba(59, 109, 17, 0.2); }
+  70% { box-shadow: 0 0 0 6px rgba(59, 109, 17, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(59, 109, 17, 0); }
+}
+
+.time-slot-card.free .btn-ok {
+  animation: pulsing 2s infinite;
+}
+
+/* Date Picker custom corporate stylings */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  filter: invert(0.5);
+  transition: filter 0.2s;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  filter: invert(0.2);
+}
+
