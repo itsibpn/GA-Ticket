@@ -525,17 +525,20 @@ const db = {
   },
 
   updateAsset: async (id, data) => {
-    const { condition, status } = data;
+    const { code, name, category, condition, status } = data;
     if (usePostgres) {
       const res = await pool.query(
-        'UPDATE assets SET condition = $1, status = $2 WHERE id = $3 RETURNING *',
-        [condition, status, id]
+        'UPDATE assets SET code = $1, name = $2, category = $3, condition = $4, status = $5 WHERE id = $6 RETURNING *',
+        [code, name, category, condition, status, id]
       );
       return res.rows[0];
     } else {
       const store = readJsonDb();
       const asset = store.assets.find(a => a.id === parseInt(id));
       if (asset) {
+        if (code !== undefined) asset.code = code;
+        if (name !== undefined) asset.name = name;
+        if (category !== undefined) asset.category = category;
         if (condition !== undefined) asset.condition = condition;
         if (status !== undefined) asset.status = status;
         writeJsonDb(store);
